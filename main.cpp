@@ -30,4 +30,5 @@ int main()
             cout << ir << ' ' << ig << ' ' << ib << '\n';
         }
     }
+    cerr << "\nDone.";
 }
