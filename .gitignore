@@ -1,3 +1,8 @@
 
 *.exe
 *.ppm
+stb_image_write.h
+stb_image.h
+.vscode/settings.json
+.vscode/settings.json
+image.png

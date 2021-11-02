@@ -6,7 +6,16 @@
 #include "material.h"
 #include "sphere.h"
 
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+
+#define STBI_MSC_SECURE_CRT
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb_image_write.h"
+
 #include <iostream>
+#include <fstream>
+#include <sstream>
 
 color ray_color(const ray& r, const hittable& world, int depth) {
     hit_record rec;
@@ -31,7 +40,7 @@ int main()
 {
     // Canvas
     const auto aspect_ratio = 16.0 / 9.0;
-    const int image_width = 800;
+    const int image_width = 1600;
     const int image_height = static_cast<int>(image_width / aspect_ratio);
     const int samples_per_pixel = 100;
     const int max_depth = 100;
@@ -62,10 +71,13 @@ int main()
     camera cam(lookfrom, lookat, vup, 20, aspect_ratio, aperture, dist_to_focus);
 
     // Render 
-    std::cout << "P3\n" << image_width << " " << image_height << "\n255\n";
+    //std::cout << "P3\n" << image_width << " " << image_height << "\n255\n";
 
     // Pixels written out from left to right (i = 0)
     // Rows top to bottom (j = image_height-1)
+    uint8_t* pixels = new uint8_t[image_height*image_width*3];
+    static int pixelIndex = 0;
+
     for (int j = image_height-1; j>= 0; --j)
     {
         // Progress Bar
@@ -79,8 +91,10 @@ int main()
                 ray r = cam.get_ray(u,v);
                 pixel_color += ray_color(r,world, max_depth);
             }
-            write_color(std::cout, pixel_color, samples_per_pixel);
+            //write_color(std::cout, pixel_color, samples_per_pixel);
+            write_color_png(pixel_color, samples_per_pixel, pixels, pixelIndex);
         }
     }
+    stbi_write_png("image.png", image_width, image_height, 3, pixels, image_width*3);
     std::cerr << "\nDone.\n";
 }
