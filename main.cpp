@@ -5,6 +5,7 @@
 #include "hittable_list.h"
 #include "material.h"
 #include "sphere.h"
+#include "moving_sphere.h"
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
@@ -36,13 +37,42 @@ color ray_color(const ray& r, const hittable& world, int depth) {
     return (1.0-t)*color(1.0, 1.0, 1.0) + t*color(0.5, 0.7, 1.0);
 }
 
+hittable_list original_scene() {
+    
+    hittable_list objects;
+
+    auto material_ground = make_shared<checker_texture>(color(0.2, 0.3, 0.1), color(0.9, 0.9, 0.9));
+    auto material_center = make_shared<lambertian>(color(0.3, 0.3, 1.0));
+    auto material_left   = make_shared<dielectric>(1.5);
+    auto material_right  = make_shared<metal>(color(0.8, 0.6, 0.2), 0.5);
+
+    objects.add(make_shared<sphere>(point3( 0.0, -100.5, -1.0), 100.0, make_shared<lambertian>(material_ground)));
+    objects.add(make_shared<sphere>(point3( 0.0, 0.0, -1.0), 0.5, material_center));
+    objects.add(make_shared<sphere>(point3(-1.0, 0.0, -1.0), 0.5, material_left));
+    objects.add(make_shared<sphere>(point3(-1.0, 0.0, -1.0), -0.425, material_left));
+    objects.add(make_shared<sphere>(point3( 1.0, 0.0, -1.0), -0.45, material_right));
+    objects.add(make_shared<moving_sphere>(point3(0, 0, 0), point3(0,0,-0.5), 0, 1, 0.3, material_center));
+
+    return objects;
+}
+
+hittable_list two_spheres() {
+    hittable_list objects;
+
+    auto checker = make_shared<checker_texture>(color(0.2, 0.3, 0.1), color(0.9, 0.9, 0.9));
+
+    objects.add(make_shared<sphere>(point3(0,-10, 0), 10, make_shared<lambertian>(checker)));
+    objects.add(make_shared<sphere>(point3(0, 10, 0), 10, make_shared<lambertian>(checker)));
+
+    return objects;
+}
+
 int main()
 {
-    // Canvas
+    // Canvas.
     const auto aspect_ratio = 16.0 / 9.0;
-    const int image_width = 1600;
-    const int image_height = static_cast<int>(image_width / aspect_ratio);
-    const int samples_per_pixel = 100;
+    const int image_width = 800;
+    const int samples_per_pixel = 50;
     const int max_depth = 100;
 
 
@@ -50,25 +80,37 @@ int main()
     auto r = cos(pi/4);
 
     hittable_list world;
-    auto material_ground = make_shared<lambertian>(color(1, 0.4, 0.4));
-    auto material_center = make_shared<lambertian>(color(0.3, 0.3, 1.0));
-    auto material_left   = make_shared<dielectric>(1.5);
-    auto material_right  = make_shared<metal>(color(0.8, 0.6, 0.2), 1.0);
 
-    world.add(make_shared<sphere>(point3( 0.0, -100.5, -1.0), 100.0, material_ground));
-    world.add(make_shared<sphere>(point3( 0.0, 0.0, -1.0), 0.5, material_center));
-    world.add(make_shared<sphere>(point3(-1.0, 0.0, -1.0), 0.5, material_left));
-    world.add(make_shared<sphere>(point3(-1.0, 0.0, -1.0), -0.425, material_left));
-    world.add(make_shared<sphere>(point3( 1.0, 0.0, -1.0), -0.45, material_right));
+    point3 lookfrom;
+    point3 lookat;
+    auto vfov = 40.0;
+    auto aperture = 0.0;
+
+
+    switch(0) {
+        case 1:
+            world = original_scene();
+            lookfrom = point3(3,3,2);
+            lookat = point3(0,0,-1);
+            vfov = 20.0;
+            aperture = 0.5;
+            break;
+
+        default:
+        case 2:
+            world = two_spheres();
+            lookfrom = point3(13,2,3);
+            lookat = point3(0,0,0);
+            vfov = 20.0;
+            break;
+    }
 
     // Camera
-    point3 lookfrom(3,3,2);
-    point3 lookat(0,0,-1);
     vec3 vup(0,1,0);
     auto dist_to_focus = (lookfrom-lookat).length();
-    auto aperture = 0.5;
+    int image_height = static_cast<int>(image_width / aspect_ratio);
 
-    camera cam(lookfrom, lookat, vup, 20, aspect_ratio, aperture, dist_to_focus);
+    camera cam(lookfrom, lookat, vup, vfov, aspect_ratio, aperture, dist_to_focus, 0.0, 1.0);
 
     // Render 
     //std::cout << "P3\n" << image_width << " " << image_height << "\n255\n";
@@ -89,10 +131,9 @@ int main()
                 auto u = double(i + random_double()) / (image_width-1);
                 auto v = double(j + random_double()) / (image_height-1);
                 ray r = cam.get_ray(u,v);
-                pixel_color += ray_color(r,world, max_depth);
+                pixel_color += ray_color(r, world, max_depth);
             }
-            //write_color(std::cout, pixel_color, samples_per_pixel);
-            write_color_png(pixel_color, samples_per_pixel, pixels, pixelIndex);
+            write_color(pixel_color, samples_per_pixel, pixels, pixelIndex);
         }
     }
     stbi_write_png("image.png", image_width, image_height, 3, pixels, image_width*3);

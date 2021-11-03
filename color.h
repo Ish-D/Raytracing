@@ -4,7 +4,7 @@
 #include "vec3.h"
 #include <iostream>
 
-void write_color_png(color pixel_color, int samples_per_pixel, uint8_t pixels[], int& i){
+void write_color(color pixel_color, int samples_per_pixel, uint8_t pixels[], int& i){
     auto r = pixel_color.x();
     auto g = pixel_color.y();
     auto b = pixel_color.z();

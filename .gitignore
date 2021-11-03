@@ -6,3 +6,4 @@ stb_image.h
 .vscode/settings.json
 .vscode/settings.json
 image.png
+*.png
