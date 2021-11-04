@@ -7,8 +7,8 @@
 #include "sphere.h"
 #include "moving_sphere.h"
 
-#define STB_IMAGE_IMPLEMENTATION
-#include "stb_image.h"
+//#define STB_IMAGE_IMPLEMENTATION
+#include "rtw_stb_image.h"
 
 #define STBI_MSC_SECURE_CRT
 #define STB_IMAGE_WRITE_IMPLEMENTATION
@@ -78,6 +78,14 @@ hittable_list perlin_spheres() {
     return objects;
 }
 
+hittable_list earth() {
+    auto earth_texture = make_shared<image_texture>("mars_texture.jpg");
+    auto earth_surface = make_shared<lambertian>(earth_texture);
+    auto globe = make_shared<sphere>(point3(0,0,0), 2, earth_surface);
+
+    return hittable_list(globe);
+}
+
 int main()
 {
     // Canvas.
@@ -98,7 +106,7 @@ int main()
     auto aperture = 0.0;
 
 
-    switch(3) {
+    switch(4) {
         case 1:
             world = original_scene();
             lookfrom = point3(3,3,2);
@@ -116,6 +124,12 @@ int main()
             break;
         case 3:
             world = perlin_spheres();
+            lookfrom = point3(13,2,3);
+            lookat = point3(0,0,0);
+            vfov = 20.0;
+            break;
+        case 4:
+            world = earth();
             lookfrom = point3(13,2,3);
             lookat = point3(0,0,0);
             vfov = 20.0;
