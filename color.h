@@ -9,6 +9,10 @@ void write_color(color pixel_color, int samples_per_pixel, uint8_t pixels[], int
     auto g = pixel_color.y();
     auto b = pixel_color.z();
 
+    if (r != r) r = 0.0;
+    if (g != g) g = 0.0;
+    if (b != b) b = 0.0;
+
     //Divide color by number of samplesc
     auto scale = 1.0/samples_per_pixel;
     r = sqrt(scale*r);
