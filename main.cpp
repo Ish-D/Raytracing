@@ -252,9 +252,9 @@ int main()
 {
     // Canvas
     auto aspect_ratio = 1.0/1.0;
-    int image_width = 600;
+    int image_width = 1080;
     int image_height = static_cast<int>(image_width / aspect_ratio);
-    int samples_per_pixel = 100;
+    int samples_per_pixel = 200;
     int max_depth = 50;
 
     // World
@@ -378,4 +378,4 @@ int main()
     }
     stbi_write_png("image.png", image_width, image_height, 3, pixels, image_width*3);
     std::cerr << "\nDone.\n";
-}
+} // Standard time 36:42:80
