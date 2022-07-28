@@ -11,3 +11,4 @@ rtw_stb_image.h
 *.exp
 *.lib
 *.obj
+*.json
