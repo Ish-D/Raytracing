@@ -2,21 +2,31 @@
 #define CAMERA_H
 
 #include "rtweekend.h"
+#include "curand_kernel.h"
+
+__device__ vec3 random_in_unit_disk(curandState *local_rand_state) {
+  vec3 p;
+  do {
+    p = 2.0f*vec3(curand_uniform(local_rand_state),curand_uniform(local_rand_state),0.0f) - vec3(1,1,0);
+  } while (dot(p,p) >= 1.0f);
+  return p;
+}
+
 
 class camera {
     public:
-        camera(
+        __device__ camera(
             point3 lookfrom,
             point3 lookat,
             vec3 vup,
-            double vfov, // vertical field of view
-            double aspect_ratio,
-            double aperture,
-            double focus_dist,
-            double _time0 = 0,
-            double _time1 = 0
+            float vfov, // vertical field of view
+            float aspect_ratio,
+            float aperture,
+            float focus_dist,
+            float _time0 = 0,
+            float _time1 = 0
         ) {
-            auto theta = degrees_to_rad(vfov);
+            auto theta = vfov*(CUDART_PI/180.0f);
             auto h = tan(theta/2);
             auto viewport_height = 2.0*h;
             auto viewport_width = aspect_ratio * viewport_height;
@@ -35,13 +45,15 @@ class camera {
             time1 = _time1;
         }
         
-        ray get_ray(double s, double t) const {
-            vec3 rd = lens_radius * random_in_unit_disc();
+        __device__ ray get_ray(float s, float t, curandState *local_rand_state) const {
+            vec3 rd = lens_radius * random_in_unit_disk(local_rand_state);
             vec3 offset = u*rd.x() + v*rd.y();
+
+            float time = time0 + curand_uniform(local_rand_state)*(time1-time0);
 
             return ray(
                 origin+offset, 
-                lower_left_corner+ s*horizontal + t*vertical - origin - offset, random_double(time0, time1));
+                lower_left_corner+ s*horizontal + t*vertical - origin - offset, time);
         }
 
     private:
@@ -50,8 +62,8 @@ class camera {
         vec3 horizontal;
         vec3 vertical;
         vec3 u,v,w;
-        double lens_radius;
-        double time0, time1;
+        float lens_radius;
+        float time0, time1;
 };
 
 #endif

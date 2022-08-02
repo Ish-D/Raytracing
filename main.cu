@@ -3,14 +3,20 @@
 #include "curand_kernel.h"
 
 #include "rtweekend.h"
-#include "ray.h"
+
 #include "color.h"
-#include "ray.h"
+#include "camera.h"
+#include "hittable_list.h"
+#include "material.h"
+#include "sphere.h"
+#include "aarect.h"
+// #include "box.h"
 
 #define STBI_MSC_SECURE_CRT
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
+#define RND (curand_uniform(&local_rand_state))
 #define checkCudaErrors(val) check_cuda( (val), #val, __FILE__, __LINE__ )
 void check_cuda(cudaError_t result, char const *const func, const char *const file, int const line) {
     if (result) {
@@ -22,24 +28,154 @@ void check_cuda(cudaError_t result, char const *const func, const char *const fi
     }
 }
 
-__device__ color ray_color(const ray& r) {
-    vec3 unit_direction = unit_vector(r.direction());
-    float t = 0.5f*(unit_direction.y() + 1.0f);
-    return (1.0f-t)*vec3(1.0,1.0,1.0) + t*vec3(0.5, 0.7, 1.0);
+
+__device__ color ray_color(const ray& r, hittable **world, int depth, curandState *local_rand_state) {
+    color background(0,0,0);
+
+    ray cur = r;
+    vec3 cur_attenuation = vec3(1, 1, 1);
+
+    for (int i = 0; i<depth; i++) {
+
+      hit_record rec;
+
+      if (!(*world)->hit(cur, 0.001f, FLT_MAX, rec)) { // hits nothing
+        cur_attenuation += background;
+        break;
+      }
+
+      color attenuation;
+      ray scattered;
+      color emitted = rec.mat_ptr->emitted(cur, rec, rec.u, rec.v, rec.p); 
+      
+      // hits an object
+      if (rec.mat_ptr->scatter(cur, rec, attenuation, scattered, local_rand_state)) {
+          cur = scattered;
+          cur_attenuation += emitted;
+          cur_attenuation *= attenuation;
+      }
+      else { // hits a lgiht?
+        cur_attenuation += emitted;
+        break;
+      }
+    }
+    
+    return cur_attenuation;
 }
 
-__global__ void render (vec3 *fb, int max_x, int max_y, vec3 lower_left_corner, vec3 horizontal, vec3 vertical, vec3 origin) {
+// __device__ color ray_color(const ray& r, hittable **world, int depth, curandState *local_rand_state) {
+
+//     color background(0,0,0);
+//     ray cur = r;
+//     vec3 cur_attenuation = vec3(1.0, 1.0, 1.0); // recursive stack
+
+//     for (int i = 0; i<depth; i++) {
+
+//       hit_record rec;
+
+//       // hits something
+//       if ((*world)->hit(cur, 0.001f, FLT_MAX, rec)) { 
+//           ray scattered;
+//           color attenuation;
+//           color emitted = rec.mat_ptr->emitted(cur, rec, rec.u, rec.v, rec.p); 
+//           // Hit non light
+//           if (rec.mat_ptr->scatter(cur, rec, attenuation, scattered, local_rand_state)) {
+//             cur_attenuation += emitted;
+//             cur_attenuation *= attenuation;
+//             cur = scattered;
+//           }
+//           // Hit Light
+//           else {
+//             return emitted;
+//           }
+//       }
+//       // Hits nothing
+//       else {
+//           return cur_attenuation;
+//       }
+//     }
+//   return vec3(0,0,0); // recursion limit
+// }
+
+__global__ void render_init(int max_x, int max_y, curandState *rand_state) {
+  int i = threadIdx.x + blockIdx.x * blockDim.x;
+  int j = threadIdx.y + blockIdx.y * blockDim.y;
+
+  if((i >= max_x) || (j >= max_y)) return;
+  int pixel_index = j*max_x + i;
+
+  //Each thread gets same seed, a different sequence number, no offset
+  curand_init(1984, pixel_index, 0, &rand_state[pixel_index]);
+}
+
+
+__global__ void render (vec3 *fb, int max_x, int max_y, int samples, int depth, camera **cam, hittable **world, curandState *rand_state) {
     int i = threadIdx.x + blockIdx.x * blockDim.x;
     int j = threadIdx.y + blockIdx.y * blockDim.y;
 
     if ((i >= max_x) || (j >= max_y)) return;
-
-    int pixelIndex = j*max_x + i;
+    int pixelIndex = j*max_x + i;   
     
-    float u = float(i) / float(max_x);
-    float v = float(j) / float(max_y);
-    ray r(origin, lower_left_corner + u*horizontal + v*vertical);
-    fb[pixelIndex] = ray_color(r);
+    curandState local_rand_state = rand_state[pixelIndex];
+    color col(0,0,0);   
+
+  for (int s = 0; s<samples; s++) {
+      float u = float(i + curand_uniform(&local_rand_state)) / float(max_x);
+      float v = float(j + curand_uniform(&local_rand_state)) / float(max_y);
+      ray r = (*cam)->get_ray(u,v, &local_rand_state);
+      col += ray_color(r, world, depth, &local_rand_state);
+  }
+  // col /= samples;
+  fb[pixelIndex] = col;
+  rand_state[pixelIndex] = local_rand_state;
+}
+
+__global__ void create_world(hittable **list, hittable **world, camera **cam, int aspect_ratio, curandState *rand_state) {
+  if (threadIdx.x == 0 && blockIdx.x == 0) {
+    curandState local_rand_state = *rand_state;
+
+    auto red = new lambertian(new solid_color(.65, .05, .05));
+    auto green = new lambertian(new solid_color(.12, .45, .15));
+    auto white = new lambertian(new solid_color(.73, .73, .73));
+    auto light = new diffuse_light(new solid_color(10, 10, 10));
+    auto glass = new dielectric(1.5);
+    auto metal = new metallic(color(0.5, 0.5, 0.5), 0.5);
+
+    list[0] = new sphere(point3(400,90,165), 100, metal);
+    list[1] = new sphere(point3(190, 90, 190), 100, green);
+
+    list[2] = new xz_rect(0, 555, 0, 555, 0, white);
+    list[3] = new xz_rect(0, 555, 0, 555, 555, white);
+    list[4] = new xy_rect(0, 555, 0, 555, 555, white);
+    list[5] = new yz_rect(0, 555, 0, 555, 555, green);
+    list[6] = new yz_rect(0, 555, 0, 555, 0, red);
+    list[7] = new xz_rect(213, 343, 227, 332, 554, light);
+
+//new diffuse_light(new solid_color(10,10,10)
+
+    *rand_state = local_rand_state;
+    *world  = new hittable_list(list, 8);
+
+    vec3 vup(0,1,0);
+    point3 lookfrom = point3(278, 278, -800);
+    point3 lookat = point3(278, 278, 0);
+    auto dist_to_focus = (lookfrom-lookat).length();
+    auto vfov = 40.0;
+    auto aperture = 0.0;
+    auto time0 = 0.0;
+    auto time1 = 1.0;
+
+    *cam = new camera(lookfrom, lookat, vup, vfov, aspect_ratio, aperture, dist_to_focus, time0, time1);
+  }
+}
+
+__global__ void free_world(hittable **list, hittable **world, camera **camera) {
+  for (int i = 0; i<8; i++) {
+    delete list[i];
+  }
+
+  delete *world;
+  delete *camera;
 }
 
 int main(void) {
@@ -50,8 +186,8 @@ int main(void) {
     int threadsX = 16;
     int threadsY = 16;
 
-    int samples = 50;
-    int depth = 50;
+    int samples = 200;
+    int depth = 20;
     int numPixels = image_width*image_height;
 
     // Allocate frame buffer
@@ -65,12 +201,25 @@ int main(void) {
     clock_t start, stop;
     start = clock();
 
+    curandState *d_rand_state;
+    checkCudaErrors(cudaMalloc((void **)&d_rand_state, numPixels*sizeof(curandState)));
+    
+    checkCudaErrors(cudaGetLastError());
+    checkCudaErrors(cudaDeviceSynchronize());
+
+    hittable **list;
+    int num_hittables = 8;
+    checkCudaErrors(cudaMalloc((void **)&list, num_hittables*sizeof(hittable *)));
+    hittable **world;
+    checkCudaErrors(cudaMalloc((void **)&world, sizeof(hittable *)));
+    camera **cam;
+    checkCudaErrors(cudaMalloc((void **)&cam, sizeof(camera *)));
+    create_world<<<1,1>>>(list, world, cam, aspect_ratio, d_rand_state);
+    checkCudaErrors(cudaGetLastError());
+    checkCudaErrors(cudaDeviceSynchronize());
+    
     // render buffer
-    render<<<blocks, threads>>>(fb, image_width, image_height, 
-                                    vec3(-2.0, -1.0, -1.0),
-                                    vec3(4.0, 0.0, 0.0),
-                                    vec3(0.0, 2.0, 0.0),
-                                    vec3(0.0, 0.0, 0.0));
+    render<<<blocks, threads>>>(fb, image_width, image_height, samples, depth, cam, world, d_rand_state);
     checkCudaErrors(cudaGetLastError());
     checkCudaErrors(cudaDeviceSynchronize());
 
@@ -84,14 +233,13 @@ int main(void) {
 
     for (int j = image_height-1; j>=0; j--) {
         for (int i = 0; i<image_width; i++) {
-
             size_t pixelIndex = j*image_width + i;
-            write_color(fb[pixelIndex], 1, pixels, p);
+            write_color(fb[pixelIndex], samples, pixels, p);
         }
     }
     stbi_write_png("image.png", image_width, image_height, 3, pixels, image_width*3);
     // std::cerr << "\nDone.\n";
     checkCudaErrors(cudaFree(fb));
-
+    free_world<<<1,1>>>(list, world, cam);
     return 0;
 }

@@ -2,116 +2,125 @@
 #define MATERIAL_H
 
 #include "rtweekend.h"
-#include "pdf.h"
+// #include "pdf.h"
 #include "texture.h"
+#include "curand_kernel.h"
+
+#define RANDVEC3 vec3(curand_uniform(local_rand_state),curand_uniform(local_rand_state),curand_uniform(local_rand_state))
+
+__device__ vec3 random_in_unit_sphere(curandState *local_rand_state) {
+  vec3 p;
+  do {
+    p = 2.0f*RANDVEC3 - vec3(1,1,1);
+  } while (p.length_squared() >= 1.0f);
+  return p;
+}
+
+__device__ bool refract(const vec3& v, const vec3& n, float ni_over_nt, vec3& refracted) {
+    vec3 uv = unit_vector(v);
+    float dt = dot(uv, n);
+    float discriminant = 1.0f - ni_over_nt*ni_over_nt*(1-dt*dt);
+    
+    if (discriminant > 0) {
+        refracted = ni_over_nt*(uv - n*dt) - n*sqrt(discriminant);
+        return true;
+    }
+    else
+        return false;
+}
 
 struct hit_record;
-
-struct scatter_record {
-    ray specular_ray;
-    bool is_specular;
-    color attenuation;
-    shared_ptr<pdf> pdf_ptr;
-};
 
 class material {
     public:
 
-        virtual color emitted(const ray& r_in, const hit_record& rec, double u, double v, const point3& p) const {
-            return color(0,0,0);
+        __device__ virtual color emitted(const ray& r_in, const hit_record& rec, float u, float v, const point3& p) const {
+            return color();
         }
 
-        virtual bool scatter(const ray& r_in, const hit_record& rec, scatter_record& srec
-        ) const {
+        __device__ virtual bool scatter(const ray& r_in, const hit_record& rec, vec3& attenuation, ray& scattered, curandState *local_rand_state) const {
             return false;
-        }
-
-        virtual double scattering_pdf(
-            const ray& r_in, const hit_record& rec, const ray& scattered
-        ) const {
-            return 0;
         }
 };
 
 class lambertian : public material {
     public:
-        lambertian(const color& a) : albedo(make_shared<solid_color>(a)) {}
-        lambertian(shared_ptr<texture> a) : albedo(a) {}
+        // __device__ lambertian(color c) : albedo(c) {}
+        __device__ lambertian(Texture *a) : albedo(a) {}
 
-        virtual bool scatter(
-            const ray& r_in, const hit_record& rec, scatter_record& srec
-        ) const override {
-            srec.is_specular = false;
-            srec.attenuation = albedo->value(rec.u, rec.v, rec.p);
-            srec.pdf_ptr =  make_shared<cosine_pdf>(rec.normal);
+        __device__ virtual bool scatter(const ray& r_in, const hit_record& rec, vec3& attenuation, ray& scattered, curandState *local_rand_state) const {
+
+            vec3 scatter_dir = rec.normal + random_in_unit_sphere(local_rand_state);
+
+            if (scatter_dir.near_zero()) scatter_dir = rec.normal;
+
+            scattered = ray(rec.p, scatter_dir, r_in.time());
+            attenuation = albedo->value(rec.u, rec.v, rec.p);
+
             return true;
         }
-
-        double scattering_pdf(
-            const ray& r_in, const hit_record& rec, const ray& scattered
-        ) const {
-            auto cosine = dot(rec.normal, unit_vector(scattered.direction()));
-            return cosine < 0 ? 0 : cosine/pi;
-        }
-
+        
     public:
-        shared_ptr<texture> albedo;
+        Texture *albedo;
 };
 
 
-class metal : public material {
+class metallic : public material {
     public:
-        metal(const color& a, double f) : albedo(a), fuzz(f < 1 ? f : 1) {}
+        __device__ metallic(const color& a, float f) : albedo(a), fuzz(f < 1 ? f : 1) {}
 
-        virtual bool scatter(
-            const ray& r_in, const hit_record& rec, scatter_record& srec
-        ) const override {
+        __device__ virtual bool scatter(const ray& r_in, const hit_record& rec, vec3& attenuation, ray& scattered, curandState *local_rand_state) const  {
             vec3 reflected = reflect(unit_vector(r_in.direction()), rec.normal);
-            srec.specular_ray = ray(rec.p, reflected+fuzz*random_in_unit_sphere());
-            srec.attenuation = albedo;
-            srec.is_specular = true;
-            srec.pdf_ptr = 0;
-            return true;
+            scattered = ray(rec.p, reflected + fuzz*random_in_unit_sphere(local_rand_state), r_in.time());
+            attenuation = albedo;
+            return (dot(scattered.direction(), rec.normal) > 0.0f);
         }
 
     public:
         color albedo;
-        double fuzz;
+        float fuzz;
 };
 
 class dielectric : public material {
     public:
-        dielectric(double index_of_refraction) : ir(index_of_refraction) {}
+        __device__ dielectric(float index_of_refraction) : ir(index_of_refraction) {}
 
-        virtual bool scatter(
-            const ray& r_in, const hit_record& rec, scatter_record& srec
-        ) const override {
-            srec.is_specular = true;
-            srec.pdf_ptr = nullptr;
-            srec.attenuation = color(1.0, 1.0, 1.0);
-            double refraction_ratio = rec.front_face ? (1.0/ir) : ir;
-
-            vec3 unit_direction = unit_vector(r_in.direction());
-            double cos_theta = fmin(dot(-unit_direction, rec.normal), 1.0);
-            double sin_theta = sqrt(1.0 - cos_theta*cos_theta);
-
-            bool cannot_refract = refraction_ratio * sin_theta > 1.0;
-            vec3 direction;
-
-            if (cannot_refract || reflectance(cos_theta, refraction_ratio) > random_double())
-                direction = reflect(unit_direction, rec.normal);
-            else
-                direction = refract(unit_direction, rec.normal, refraction_ratio);
-
-            srec.specular_ray = ray(rec.p, direction, r_in.time());
-            return true;
+        __device__ virtual bool scatter(
+            const ray& r_in, const hit_record& rec, vec3& attenuation, ray& scattered, curandState *local_rand_state) const override {
+            vec3 outward_normal;
+            vec3 reflected = reflect(r_in.direction(), rec.normal);
+            float ni_over_nt;
+            attenuation = vec3(1.0, 1.0, 1.0);
+            vec3 refracted;
+            float reflect_prob;
+            float cosine;
+            if (dot(r_in.direction(), rec.normal) > 0.0f) {
+            outward_normal = -rec.normal;
+            ni_over_nt = ir;
+            cosine = dot(r_in.direction(), rec.normal) / r_in.direction().length();
+            cosine = sqrt(1.0f - ir*ir*(1-cosine*cosine));
+        }
+        else {
+            outward_normal = rec.normal;
+            ni_over_nt = 1.0f / ir;
+            cosine = -dot(r_in.direction(), rec.normal) / r_in.direction().length();
+        }
+        if (refract(r_in.direction(), outward_normal, ni_over_nt, refracted))
+            reflect_prob = reflectance(cosine, ir);
+        else
+            reflect_prob = 1.0f;
+        if (curand_uniform(local_rand_state) < reflect_prob)
+            scattered = ray(rec.p, reflected, r_in.time());
+        else
+            scattered = ray(rec.p, refracted, r_in.time());
+        return true;
         }
 
     public:
-        double ir; // Index of Refraction
+        float ir; // Index of Refraction
 
     private:
-        static double reflectance(double cosine, double ref_idx) {
+        __device__ static float reflectance(float cosine, float ref_idx) {
             // Use Schlick's approximation for reflectance.
             auto r0 = (1-ref_idx) / (1+ref_idx);
             r0 = r0*r0;
@@ -121,34 +130,17 @@ class dielectric : public material {
 
 class diffuse_light : public material {
     public:
-        diffuse_light(shared_ptr<texture> a) : emit(a) {}
-        diffuse_light(color c) : emit(make_shared<solid_color>(c)) {}
+        __device__ diffuse_light(Texture *a) : emit(a) {}
+        // __device__ diffuse_light(color c) : emit(c) {}
 
-        virtual color emitted(
-            const ray& r_in, const hit_record& rec, double u, double v, const point3& p
-        ) const override {
-            if (!rec.front_face)
-                return color(0,0,0);
+        __device__ virtual color emitted(const ray& r_in, const hit_record& rec, float u, float v, const point3& p) const override {
+            // if (!rec.front_face)
+            //     return color(0,0,0);
             return emit->value(u, v, p);
         }
 
     public:
-        shared_ptr<texture> emit;
-};
-
-class isotropic : public material {
-    public:
-        isotropic(color c) : albedo(make_shared<solid_color>(c)) {}
-        isotropic (shared_ptr<texture> a) : albedo(a) {}
-/*
-        virtual bool scatter(const ray& r_in, const hit_record& rec, color& attenuation, ray&scattered) const override {
-            scattered = ray(rec.p, random_in_unit_sphere(), r_in.time());
-            attenuation = albedo->value(rec.u, rec.v, rec.p);
-            return true;
-        }
-        */
-    public:
-        shared_ptr<texture> albedo;
+        Texture *emit;
 };
 
 #endif

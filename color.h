@@ -4,6 +4,7 @@
 #include "vec3.h"
 #include <iostream>
 
+
 void write_color(color pixel_color, int samples_per_pixel, uint8_t pixels[], int& i){
     float r = pixel_color.x();
     float g = pixel_color.y();
@@ -20,9 +21,9 @@ void write_color(color pixel_color, int samples_per_pixel, uint8_t pixels[], int
     b = sqrt(scale*b);
 
     // Write the translated value of each color component [0,255]
-    pixels[i++] = static_cast<int>(255.99 * r);
-    pixels[i++] = static_cast<int>(256.99 * g);
-    pixels[i++] = static_cast<int>(255.99 * b);
+    pixels[i++] = static_cast<int>(256 * clamp(r, 0.0,0.999));
+    pixels[i++] = static_cast<int>(256 * clamp(g, 0.0,0.999));
+    pixels[i++] = static_cast<int>(256 * clamp(b, 0.0,0.999));
 }
 
 #endif

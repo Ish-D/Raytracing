@@ -3,7 +3,6 @@
 *.ppm
 stb_image_write.h
 stb_image.h
-.vscode/settings.json
 image.png
 *.png
 *.jpg

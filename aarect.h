@@ -6,79 +6,79 @@
 
 class xy_rect : public hittable {
     public:
-        xy_rect() {}
-        xy_rect(double _x0, double _x1, double _y0, double _y1, double _k, shared_ptr<material> mat)
+        __device__ xy_rect() {}
+        __device__ xy_rect(float _x0, float _x1, float _y0, float _y1, float _k, material *mat)
             : x0(_x0), x1(_x1), y0(_y0), y1(_y1), k(_k), mp(mat) {};
 
-        virtual bool hit(const ray& r, double t_min, double t_max, hit_record& rec) const override;
+        __device__ virtual bool hit(const ray& r, float t_min, float t_max, hit_record& rec) const override;
 
-        virtual bool bounding_box(double time0, double time1, aabb& output_box) const override {
+        __device__ virtual bool bounding_box(float time0, float time1, aabb& output_box) const override {
             // Bounding box must have non zero width in every dimension, minor z for planes
             output_box = aabb(point3(x0,y0,k-0.0001), point3(x1,y1,k+0.0001));
             return true;
         }
 
     public:
-        shared_ptr<material> mp;
-        double x0, y0, x1, y1, k;
+        material *mp;
+        float x0, y0, x1, y1, k;
 };
 
 class xz_rect : public hittable {
     public:
-        xz_rect() {}
-        xz_rect(double _x0, double _x1, double _z0, double _z1, double _k, shared_ptr<material> mat)
+        __device__ xz_rect() {}
+        __device__ xz_rect(float _x0, float _x1, float _z0, float _z1, float _k, material *mat)
             : x0(_x0), x1(_x1), z0(_z0), z1(_z1), k(_k), mp(mat) {};
 
-        virtual bool hit(const ray& r, double t_min, double t_max, hit_record& rec) const override;
+        __device__ virtual bool hit(const ray& r, float t_min, float t_max, hit_record& rec) const override;
 
-        virtual bool bounding_box(double time0, double time1, aabb& output_box) const override {
+        __device__ virtual bool bounding_box(float time0, float time1, aabb& output_box) const override {
             // Bounding box must have non zero width in every dimension, minor z for planes
             output_box = aabb(point3(x0,k-0.0001,z0), point3(x1,k+0.0001,z1));
             return true;
         }
 
-        virtual double pdf_value(const point3& origin, const vec3& v) const override {
-        hit_record rec;
-        if (!this->hit(ray(origin, v), 0.001, infinity, rec))
-            return 0;
+    //     __device__ virtual float pdf_value(const point3& origin, const vec3& v) const override {
+    //     hit_record rec;
+    //     if (!this->hit(ray(origin, v), 0.001, infinity, rec))
+    //         return 0;
 
-        auto area = (x1-x0)*(z1-z0);
-        auto distance_squared = rec.t * rec.t * v.length_squared();
-        auto cosine = fabs(dot(v, rec.normal) / v.length());
+    //     auto area = (x1-x0)*(z1-z0);
+    //     auto distance_squared = rec.t * rec.t * v.length_squared();
+    //     auto cosine = fabs(dot(v, rec.normal) / v.length());
 
-        return distance_squared / (cosine * area);
-    }
+    //     return distance_squared / (cosine * area);
+    // }
 
-    virtual vec3 random(const point3& origin) const override {
-        auto random_point = point3(random_double(x0,x1), k, random_double(z0,z1));
-        return random_point - origin;
-    }
+    // __device__ virtual vec3 random(const point3& origin) const override {
+    //     auto random_point = point3(random_float(x0,x1), k, random_float(z0,z1));
+    //     return random_point - origin;
+    // }
 
     public:
-        shared_ptr<material> mp;
-        double x0, z0, x1, z1, k;
+        material *mp;
+        float x0, z0, x1, z1, k;
 };
 
 class yz_rect : public hittable {
     public:
-        yz_rect() {}
-        yz_rect(double _y0, double _y1, double _z0, double _z1, double _k, shared_ptr<material> mat)
+        __device__ yz_rect() {}
+        __device__ yz_rect(float _y0, float _y1, float _z0, float _z1, float _k, material *mat)
             : y0(_y0), y1(_y1), z0(_z0), z1(_z1), k(_k), mp(mat) {};
 
-        virtual bool hit(const ray& r, double t_min, double t_max, hit_record& rec) const override;
+        __device__ virtual bool hit(const ray& r, float t_min, float t_max, hit_record& rec) const override;
 
-        virtual bool bounding_box(double time0, double time1, aabb& output_box) const override {
+        __device__ virtual bool bounding_box(float time0, float time1, aabb& output_box) const override {
             // Bounding box must have non zero width in every dimension, minor z for planes
             output_box = aabb(point3(k-0.0001,y0,z0), point3(k+0.0001,y1,z1));
             return true;
         }
 
     public:
-        shared_ptr<material> mp;
-        double y0, z0, y1, z1, k;
+        material *mp;
+        float y0, z0, y1, z1, k;
 };
 
-bool xy_rect::hit(const ray& r, double t_min, double t_max, hit_record& rec) const {
+__device__ bool xy_rect::hit(const ray& r, float t_min, float t_max, hit_record& rec) const {
 
     auto t = (k-r.origin().z())/ r.direction().z();
     if (t < t_min || t > t_max)
@@ -101,7 +101,7 @@ bool xy_rect::hit(const ray& r, double t_min, double t_max, hit_record& rec) con
     return true;
 };
 
-bool xz_rect::hit(const ray& r, double t_min, double t_max, hit_record& rec) const {
+__device__ bool xz_rect::hit(const ray& r, float t_min, float t_max, hit_record& rec) const {
 
     auto t = (k-r.origin().y())/ r.direction().y();
     if (t < t_min || t > t_max)
@@ -124,7 +124,7 @@ bool xz_rect::hit(const ray& r, double t_min, double t_max, hit_record& rec) con
     return true;
 };
 
-bool yz_rect::hit(const ray& r, double t_min, double t_max, hit_record& rec) const {
+__device__ bool yz_rect::hit(const ray& r, float t_min, float t_max, hit_record& rec) const {
 
     auto t = (k-r.origin().x())/ r.direction().x();
     if (t < t_min || t > t_max)

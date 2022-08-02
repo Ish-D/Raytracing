@@ -1,46 +1,44 @@
 #ifndef SPHERE_H
 #define SPHERE_H
 
-#include "rtweekend.h"
+// #include "rtweekend.h"
 #include "hittable.h"
-#include "onb.h"
+
 class sphere : public hittable {
     public:
-        sphere() {}
+        __device__ sphere() {}
 
-        sphere(point3 cen, double r, shared_ptr<material> m)
-            : center(cen), radius(r), mat_ptr(m) {};
+        __device__ sphere(point3 cen, float r, material *m) : center(cen), radius(r), mat_ptr(m) {};
 
-        virtual bool hit(
-            const ray& r, double t_min, double t_max, hit_record& rec) const override;
+        __device__ virtual bool hit(const ray& r, float t_min, float t_max, hit_record& rec) const override;
         
-        virtual bool bounding_box(double time0, double time1, aabb& output_box) const override;
-            virtual double pdf_value(const point3& o, const vec3& v) const override;
-        virtual vec3 random(const point3& o) const override;
+        __device__ virtual bool bounding_box(float time0, float time1, aabb& output_box) const override;
+        //     virtual float pdf_value(const point3& o, const vec3& v) const override;
+        // virtual vec3 random(const point3& o) const override;
 
     public:
         point3 center;
-        double radius;
-        shared_ptr<material> mat_ptr;
+        float radius;
+        material *mat_ptr;
 
     private:
-        static void get_sphere_uv(const point3& p, double& u, double& v) {
+        __device__ static void get_sphere_uv(const point3& p, float& u, float& v) {
             auto theta = acos(-p.y());
-            auto phi = atan2(-p.z(), p.x()) + pi;
+            auto phi = atan2(-p.z(), p.x()) + CUDART_PI;
 
-            u = phi/(2*pi);
-            v = theta/pi;
+            u = phi/(2*CUDART_PI);
+            v = theta/CUDART_PI;
         }
 };
 
-bool sphere::bounding_box(double time0, double time1, aabb& output_box) const {
+__device__ bool sphere::bounding_box(float time0, float time1, aabb& output_box) const {
     output_box = aabb(
         center - vec3(radius, radius, radius),
         center + vec3(radius, radius, radius));
     return true;
 }
 
-bool sphere::hit(const ray& r, double t_min, double t_max, hit_record& rec) const {
+__device__ bool sphere::hit(const ray& r, float t_min, float t_max, hit_record& rec) const {
     vec3 oc = r.origin() - center;
     auto a = r.direction().length_squared();
     auto half_b = dot(oc, r.direction());
@@ -68,23 +66,23 @@ bool sphere::hit(const ray& r, double t_min, double t_max, hit_record& rec) cons
     return true;
 }
 
-double sphere::pdf_value(const point3& o, const vec3& v) const {
-    hit_record rec;
-    if (!this->hit(ray(o, v), 0.001, infinity, rec))
-        return 0;
+// float sphere::pdf_value(const point3& o, const vec3& v) const {
+//     hit_record rec;
+//     if (!this->hit(ray(o, v), 0.001, infinity, rec))
+//         return 0;
 
-    auto cos_theta_max = sqrt(1 - radius*radius/(center-o).length_squared());
-    auto solid_angle = 2*pi*(1-cos_theta_max);
+//     auto cos_theta_max = sqrt(1 - radius*radius/(center-o).length_squared());
+//     auto solid_angle = 2*pi*(1-cos_theta_max);
 
-    return  1 / solid_angle;
-}
+//     return  1 / solid_angle;
+// }
 
-vec3 sphere::random(const point3& o) const {
-    vec3 direction = center - o;
-    auto distance_squared = direction.length_squared();
-    onb uvw;
-    uvw.build_from_w(direction);
-    return uvw.local(random_to_sphere(radius, distance_squared));
-}
+// vec3 sphere::random(const point3& o) const {
+//     vec3 direction = center - o;
+//     auto distance_squared = direction.length_squared();
+//     onb uvw;
+//     uvw.build_from_w(direction);
+//     return uvw.local(random_to_sphere(radius, distance_squared));
+// }
 
 #endif
