@@ -17,6 +17,7 @@
 #include "stb_image_write.h"
 
 #define RND (curand_uniform(&local_rand_state))
+
 #define checkCudaErrors(val) check_cuda( (val), #val, __FILE__, __LINE__ )
 void check_cuda(cudaError_t result, char const *const func, const char *const file, int const line) {
     if (result) {
@@ -30,72 +31,25 @@ void check_cuda(cudaError_t result, char const *const func, const char *const fi
 
 
 __device__ color ray_color(const ray& r, hittable **world, int depth, curandState *local_rand_state) {
-    color background(0,0,0);
+    hit_record rec;
 
-    ray cur = r;
-    vec3 cur_attenuation = vec3(1, 1, 1);
-
-    for (int i = 0; i<depth; i++) {
-
-      hit_record rec;
-
-      if (!(*world)->hit(cur, 0.001f, FLT_MAX, rec)) { // hits nothing
-        cur_attenuation += background;
-        break;
-      }
-
-      color attenuation;
+    if ((*world)->hit(r, 0.001f, FLT_MAX, rec)) {
       ray scattered;
-      color emitted = rec.mat_ptr->emitted(cur, rec, rec.u, rec.v, rec.p); 
-      
-      // hits an object
-      if (rec.mat_ptr->scatter(cur, rec, attenuation, scattered, local_rand_state)) {
-          cur = scattered;
-          cur_attenuation += emitted;
-          cur_attenuation *= attenuation;
+      color attenuation;
+      color emitted = rec.mat_ptr->emitted(rec.u, rec.v, rec.p);
+
+      if (depth < 5 && rec.mat_ptr->scatter(r, rec, attenuation, scattered, local_rand_state)) {
+        return emitted + attenuation * ray_color(scattered, world, depth+1, local_rand_state);
       }
-      else { // hits a lgiht?
-        cur_attenuation += emitted;
-        break;
-      }
+      else return emitted;
     }
-    
-    return cur_attenuation;
+
+    else {
+      return color(0,0,0);
+    }
 }
 
-// __device__ color ray_color(const ray& r, hittable **world, int depth, curandState *local_rand_state) {
 
-//     color background(0,0,0);
-//     ray cur = r;
-//     vec3 cur_attenuation = vec3(1.0, 1.0, 1.0); // recursive stack
-
-//     for (int i = 0; i<depth; i++) {
-
-//       hit_record rec;
-
-//       // hits something
-//       if ((*world)->hit(cur, 0.001f, FLT_MAX, rec)) { 
-//           ray scattered;
-//           color attenuation;
-//           color emitted = rec.mat_ptr->emitted(cur, rec, rec.u, rec.v, rec.p); 
-//           // Hit non light
-//           if (rec.mat_ptr->scatter(cur, rec, attenuation, scattered, local_rand_state)) {
-//             cur_attenuation += emitted;
-//             cur_attenuation *= attenuation;
-//             cur = scattered;
-//           }
-//           // Hit Light
-//           else {
-//             return emitted;
-//           }
-//       }
-//       // Hits nothing
-//       else {
-//           return cur_attenuation;
-//       }
-//     }
-//   return vec3(0,0,0); // recursion limit
-// }
 
 __global__ void render_init(int max_x, int max_y, curandState *rand_state) {
   int i = threadIdx.x + blockIdx.x * blockDim.x;
@@ -109,25 +63,28 @@ __global__ void render_init(int max_x, int max_y, curandState *rand_state) {
 }
 
 
-__global__ void render (vec3 *fb, int max_x, int max_y, int samples, int depth, camera **cam, hittable **world, curandState *rand_state) {
-    int i = threadIdx.x + blockIdx.x * blockDim.x;
-    int j = threadIdx.y + blockIdx.y * blockDim.y;
+__global__ void render (vec3 *fb, int max_x, int max_y, int samples, camera **cam, hittable **world, curandState *rand_state) {
+  int i = threadIdx.x + blockIdx.x * blockDim.x;
+  int j = threadIdx.y + blockIdx.y * blockDim.y;
 
-    if ((i >= max_x) || (j >= max_y)) return;
-    int pixelIndex = j*max_x + i;   
-    
-    curandState local_rand_state = rand_state[pixelIndex];
-    color col(0,0,0);   
+  if ((i >= max_x) || (j >= max_y)) return;
+
+  int pixelIndex = j*max_x + i;   
+
+  curandState local_rand_state = rand_state[pixelIndex];
+  color col(0,0,0);   
 
   for (int s = 0; s<samples; s++) {
-      float u = float(i + curand_uniform(&local_rand_state)) / float(max_x);
-      float v = float(j + curand_uniform(&local_rand_state)) / float(max_y);
-      ray r = (*cam)->get_ray(u,v, &local_rand_state);
-      col += ray_color(r, world, depth, &local_rand_state);
+    float u = float(i + curand_uniform(&local_rand_state)) / float(max_x);
+    float v = float(j + curand_uniform(&local_rand_state)) / float(max_y);
+    ray r = (*cam)->get_ray(u,v, &local_rand_state);
+    col += ray_color(r, world, 0, &local_rand_state);
   }
-  // col /= samples;
+
+  col /= float(samples);  
+  // col = vec3(0, 100, 0);
   fb[pixelIndex] = col;
-  rand_state[pixelIndex] = local_rand_state;
+  // rand_state[pixelIndex] = local_rand_state;
 }
 
 __global__ void create_world(hittable **list, hittable **world, camera **cam, int aspect_ratio, curandState *rand_state) {
@@ -137,11 +94,11 @@ __global__ void create_world(hittable **list, hittable **world, camera **cam, in
     auto red = new lambertian(new solid_color(.65, .05, .05));
     auto green = new lambertian(new solid_color(.12, .45, .15));
     auto white = new lambertian(new solid_color(.73, .73, .73));
-    auto light = new diffuse_light(new solid_color(10, 10, 10));
-    auto glass = new dielectric(1.5);
-    auto metal = new metallic(color(0.5, 0.5, 0.5), 0.5);
+    auto light = new diffuse_light(new solid_color(100, 100, 100));
+    // auto glass = new dielectric(1.5);
+    // auto metal = new metallic(color(0.5, 0.5, 0.5), 0.5);
 
-    list[0] = new sphere(point3(400,90,165), 100, metal);
+    list[0] = new sphere(point3(400,90,165), 100, green);
     list[1] = new sphere(point3(190, 90, 190), 100, green);
 
     list[2] = new xz_rect(0, 555, 0, 555, 0, white);
@@ -150,8 +107,6 @@ __global__ void create_world(hittable **list, hittable **world, camera **cam, in
     list[5] = new yz_rect(0, 555, 0, 555, 555, green);
     list[6] = new yz_rect(0, 555, 0, 555, 0, red);
     list[7] = new xz_rect(213, 343, 227, 332, 554, light);
-
-//new diffuse_light(new solid_color(10,10,10)
 
     *rand_state = local_rand_state;
     *world  = new hittable_list(list, 8);
@@ -187,7 +142,6 @@ int main(void) {
     int threadsY = 16;
 
     int samples = 200;
-    int depth = 20;
     int numPixels = image_width*image_height;
 
     // Allocate frame buffer
@@ -219,7 +173,7 @@ int main(void) {
     checkCudaErrors(cudaDeviceSynchronize());
     
     // render buffer
-    render<<<blocks, threads>>>(fb, image_width, image_height, samples, depth, cam, world, d_rand_state);
+    render<<<blocks, threads>>>(fb, image_width, image_height, samples, cam, world, d_rand_state);
     checkCudaErrors(cudaGetLastError());
     checkCudaErrors(cudaDeviceSynchronize());
 

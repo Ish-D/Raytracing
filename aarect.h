@@ -95,7 +95,7 @@ __device__ bool xy_rect::hit(const ray& r, float t_min, float t_max, hit_record&
     rec.t = t;
 
     auto outward_normal = vec3(0,0,1);
-    rec.set_face_normal(r, outward_normal);
+    rec.normal = vec3(0,0,1);
     rec.mat_ptr = mp;
     rec.p = r.at(t);
     return true;
@@ -118,7 +118,7 @@ __device__ bool xz_rect::hit(const ray& r, float t_min, float t_max, hit_record&
     rec.t = t;
 
     auto outward_normal = vec3(0,1,0);
-    rec.set_face_normal(r, outward_normal);
+    rec.normal = vec3(0,1,0);
     rec.mat_ptr = mp;
     rec.p = r.at(t);
     return true;
@@ -141,7 +141,7 @@ __device__ bool yz_rect::hit(const ray& r, float t_min, float t_max, hit_record&
     rec.t = t;
 
     auto outward_normal = vec3(1,0,0);
-    rec.set_face_normal(r, outward_normal);
+    rec.normal = vec3(1,0,0);
     rec.mat_ptr = mp;
     rec.p = r.at(t);
     return true;

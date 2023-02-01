@@ -13,15 +13,15 @@ class hittable_list : public hittable  {
     public:
         __device__ hittable_list() {}
         __device__ hittable_list(hittable **l, int n) {objects = l; objects_size = n;}
-        __device__ hittable_list(int n) {objects_size = n;}
+
+        __device__ virtual bool hit(const ray& r, float t_min, float t_max, hit_record& rec) const;
+        __device__ virtual bool bounding_box(float time0, float time1, aabb& output_box) const;
+
+        // __device__ hittable_list(int n) {objects_size = n;}
         // __device__ hittable_list(hittable *object) { add(object); }
         // __device__ void clear() { objects.clear(); }
         // __device__ void add(hittable *object) { objects.push_back(object);}
 
-        __device__ virtual bool hit(
-            const ray& r, float t_min, float t_max, hit_record& rec) const override;
-
-        __device__ virtual bool bounding_box(float time0, float time1, aabb& output_box) const override;
         // __device__ virtual float pdf_value(const vec3 &o, const vec3 &v) const override;
         // __device__ virtual vec3 random(const vec3 &o) const override;
 
@@ -37,7 +37,7 @@ __device__ bool hittable_list::hit(const ray& r, float t_min, float t_max, hit_r
     auto closest_so_far = t_max;
 
     for (int i = 0; i<objects_size; i++) {
-        if (objects[i]->hit(r, t_min, closest_so_far, temp_rec)) {
+        if (objects[i]->hit(r, t_min, closest_so_far, temp_rec) && temp_rec.t < closest_so_far) {
             hit_anything = true;
             closest_so_far = temp_rec.t;
             rec = temp_rec;
@@ -52,12 +52,21 @@ __device__ bool hittable_list::bounding_box(float time0, float time1, aabb& outp
     if (objects_size < 1) return false;
 
     aabb temp_box;
-    bool first_box = true;
+    bool first_box = objects[0]->bounding_box(time0, time1, temp_box);
 
-    for (int i = 0; i<objects_size; i++) {
-        if (objects[i]->bounding_box(time0, time1, temp_box)) return false;
-        output_box = first_box ? temp_box : surrounding_box(output_box, temp_box);
-        first_box = false;
+    if (!first_box) {
+        return false;
+    } else {
+        output_box = temp_box;
+    }
+
+    for (int i = 1; i<objects_size; i++) {
+        if (objects[i]->bounding_box(time0, time1, temp_box)) {
+            output_box = surrounding_box(output_box, temp_box);
+        }
+        else {
+            return false;
+        }
     }
 
     return true;

@@ -2,7 +2,6 @@
 #define MATERIAL_H
 
 #include "rtweekend.h"
-// #include "pdf.h"
 #include "texture.h"
 #include "curand_kernel.h"
 
@@ -34,28 +33,24 @@ struct hit_record;
 class material {
     public:
 
-        __device__ virtual color emitted(const ray& r_in, const hit_record& rec, float u, float v, const point3& p) const {
-            return color();
+        __device__ virtual color emitted(float u, float v, const point3& p) const {
+            return color(0,0,0);
         }
 
-        __device__ virtual bool scatter(const ray& r_in, const hit_record& rec, vec3& attenuation, ray& scattered, curandState *local_rand_state) const {
-            return false;
-        }
+        __device__ virtual bool scatter(const ray& r_in, const hit_record& rec, vec3& attenuation, ray& scattered, curandState *local_rand_state) const = 0;
 };
 
 class lambertian : public material {
     public:
-        // __device__ lambertian(color c) : albedo(c) {}
         __device__ lambertian(Texture *a) : albedo(a) {}
 
         __device__ virtual bool scatter(const ray& r_in, const hit_record& rec, vec3& attenuation, ray& scattered, curandState *local_rand_state) const {
 
-            vec3 scatter_dir = rec.normal + random_in_unit_sphere(local_rand_state);
+            vec3 scatter_dir = rec.p + rec.normal + random_in_unit_sphere(local_rand_state);
+            // if (scatter_dir.near_zero()) scatter_dir = rec.normal;
 
-            if (scatter_dir.near_zero()) scatter_dir = rec.normal;
-
-            scattered = ray(rec.p, scatter_dir, r_in.time());
-            attenuation = albedo->value(rec.u, rec.v, rec.p);
+            scattered = ray(rec.p, scatter_dir-rec.p, r_in.time());
+            attenuation = albedo->value(0, 0, rec.p);
 
             return true;
         }
@@ -94,26 +89,28 @@ class dielectric : public material {
             vec3 refracted;
             float reflect_prob;
             float cosine;
+
             if (dot(r_in.direction(), rec.normal) > 0.0f) {
-            outward_normal = -rec.normal;
-            ni_over_nt = ir;
-            cosine = dot(r_in.direction(), rec.normal) / r_in.direction().length();
-            cosine = sqrt(1.0f - ir*ir*(1-cosine*cosine));
-        }
-        else {
-            outward_normal = rec.normal;
-            ni_over_nt = 1.0f / ir;
-            cosine = -dot(r_in.direction(), rec.normal) / r_in.direction().length();
-        }
-        if (refract(r_in.direction(), outward_normal, ni_over_nt, refracted))
-            reflect_prob = reflectance(cosine, ir);
-        else
-            reflect_prob = 1.0f;
-        if (curand_uniform(local_rand_state) < reflect_prob)
-            scattered = ray(rec.p, reflected, r_in.time());
-        else
-            scattered = ray(rec.p, refracted, r_in.time());
-        return true;
+                outward_normal = -rec.normal;
+                ni_over_nt = ir;
+                cosine = dot(r_in.direction(), rec.normal) / r_in.direction().length();
+                cosine = sqrt(1.0f - ir*ir*(1-cosine*cosine));
+            }
+            else {
+                outward_normal = rec.normal;
+                ni_over_nt = 1.0f / ir;
+                cosine = -dot(r_in.direction(), rec.normal) / r_in.direction().length();
+            }
+
+            if (refract(r_in.direction(), outward_normal, ni_over_nt, refracted))
+                reflect_prob = reflectance(cosine, ir);
+            else
+                reflect_prob = 1.0f;
+            if (curand_uniform(local_rand_state) < reflect_prob)
+                scattered = ray(rec.p, reflected, r_in.time());
+            else
+                scattered = ray(rec.p, refracted, r_in.time());
+            return true;
         }
 
     public:
@@ -131,11 +128,11 @@ class dielectric : public material {
 class diffuse_light : public material {
     public:
         __device__ diffuse_light(Texture *a) : emit(a) {}
-        // __device__ diffuse_light(color c) : emit(c) {}
 
-        __device__ virtual color emitted(const ray& r_in, const hit_record& rec, float u, float v, const point3& p) const override {
-            // if (!rec.front_face)
-            //     return color(0,0,0);
+        __device__ virtual bool scatter(const ray& r_in, const hit_record& rec, vec3& attenuation, ray& scattered, curandState *local_rand_state) const {
+            return false;
+        }
+        __device__ virtual color emitted(float u, float v, const point3& p) const override {
             return emit->value(u, v, p);
         }
 
